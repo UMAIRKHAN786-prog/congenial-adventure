@@ -1,47 +1,23 @@
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from transformers import pipeline
-import random, asyncio
+import asyncio
+import bot_utils
+import config
+from datetime import datetime
 
-# --------------------------
-# Bot Token
-# --------------------------
-BOT_TOKEN = "YOUR_BOT_TOKEN"  # BotFather se copy kar
+bot = Client("SHINxROAST", bot_token=config.BOT_TOKEN)
 
-bot = Client("SHINxROAST", bot_token=BOT_TOKEN)
-
-# --------------------------
-# AI Model Setup
-# --------------------------
-generator = pipeline("text-generation", model="gpt2-medium")
-
-# --------------------------
-# Fancy symbols & fonts
-# --------------------------
-fancy_symbols = ["✨", "🔥", "💫", "🪄", "😎", "🎮", "🧸"]
-
-def generate_roast(prompt, user):
-    result = generator(
-        f"Reply in savage, funny, shin-style roast to user {user}: {prompt}",
-        max_length=50,
-        do_sample=True,
-        temperature=0.9
-    )
-    return result[0]['generated_text']
-
-# --------------------------
-# /start command
-# --------------------------
+# ---------------- /start -----------------
 @bot.on_message(filters.command("start"))
 async def start(client, message):
     user = message.from_user.first_name
     intros = [
-        f"✨ ᴏʏᴇ {user} 😏 aa gaya! Ready ho ek savage ride ke liye? {random.choice(fancy_symbols)}",
-        f"🔥 Yo {user}! Bot aa gaya roast karne ke liye! {random.choice(fancy_symbols)}",
-        f"🤣 {user}, bas tera wait khatam hua! Let's go! {random.choice(fancy_symbols)}"
+        f"✨ ᴏʏᴇ {user} 😏 aa gaya! Ready ho ek savage ride ke liye? {random.choice(bot_utils.fancy_symbols)}",
+        f"🔥 Yo {user}! Bot aa gaya roast karne ke liye! {random.choice(bot_utils.fancy_symbols)}",
+        f"🤣 {user}, bas tera wait khatam hua! Let's go! {random.choice(bot_utils.fancy_symbols)}"
     ]
     text = random.choice(intros)
-
+    
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("TALK TO SHINCHAN 😎", callback_data="talk"),
          InlineKeyboardButton("GAMER 🎮", url="https://t.me/ENDLES_ERA")],
@@ -50,59 +26,32 @@ async def start(client, message):
     ])
     await message.reply_text(text, reply_markup=buttons)
 
-# --------------------------
-# Button callbacks
-# --------------------------
-@bot.on_callback_query()
-async def button_callback(client, query):
-    user = query.from_user.first_name
-    if query.data == "talk":
-        await query.message.reply_text(f"😏 {user}, bata kya bolna hai?")
-    elif query.data == "games":
-        games = ["Chess ♟️", "Ludo 🎲", "TicTacToe ❌⭕", "Guess Number 🔢", "Snake 🐍"]
-        game_buttons = InlineKeyboardMarkup(
-            [[InlineKeyboardButton(game, callback_data=f"game_{game}")] for game in games]
-        )
-        await query.message.reply_text("Select your game 😎:", reply_markup=game_buttons)
-    elif query.data.startswith("game_"):
-        game_name = query.data.replace("game_", "")
-        await query.message.reply_text(f"You chose: {game_name} 🎮 Let's play!")
-
-# --------------------------
-# /own sticker feature
-# --------------------------
-@bot.on_message(filters.command("own") & filters.reply)
-async def own_sticker(client, message):
-    if message.reply_to_message.sticker:
-        await message.reply_text("ᴘʀᴏᴄᴇssɪɴɢ... 🪄")
-        await asyncio.sleep(2.5)
-        await message.reply_text("Your sticker is ready ✅")
-    else:
-        await message.reply_text("Reply to a sticker with /own!")
-
-# --------------------------
-# /music command
-# --------------------------
-@bot.on_message(filters.command("music"))
-async def music(client, message):
-    user = message.from_user.first_name
-    trending_songs = ["Blinding Lights ✨", "Levitating 💫", "Stay 🔥", "Bad Habits 😎", "As It Was 💥"]
-    random.shuffle(trending_songs)
-    music_text = f":) HOPE U LIKE THIS, {user} 🎵\n\n" + "\n".join(trending_songs)
-    await message.reply_text(music_text)
-
-# --------------------------
-# TALK TO SHINCHAN savage reply
-# --------------------------
+# ----------- /talk & roast ----------
 @bot.on_message(filters.private & filters.text)
 async def savage_chat(client, message):
-    user = message.from_user.first_name
-    user_text = message.text
-    roast = generate_roast(user_text, user)
-    await message.reply_text(roast)
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name
+    if bot_utils.has_credits(user_id):
+        roast = bot_utils.generate_roast(message.text, user_name)
+        bot_utils.deduct_credits(user_id)
+        await message.reply_text(roast)
+    else:
+        await message.reply_text("😅 Oye, credits khatam ho gaye! /daily ya /pay try karo.")
 
-# --------------------------
-# Start Bot
-# --------------------------
+# ----------- /daily ------------
+@bot.on_message(filters.command("daily"))
+async def daily(client, message):
+    user_id = message.from_user.id
+    # Daily credit logic using Supabase timestamp field
+    user = bot_utils.supabase.table("users").select("*").eq("user_id", user_id).single().execute()
+    now = datetime.utcnow()
+    last_daily = user.data['last_daily'] if user.data and 'last_daily' in user.data else None
+    if not last_daily or (now - last_daily).total_seconds() > 86400:
+        bot_utils.supabase.table("users").update({"credits": user.data['credits']+1000, "last_daily": now}).eq("user_id", user_id).execute()
+        await message.reply_text("🎁 Daily 1000 credits added!")
+    else:
+        await message.reply_text("⏳ Already claimed today, try after 24h.")
+
+# ---------------- start bot ----------------
 print("🔥 SHINxROAST Bot running...")
 bot.run()
